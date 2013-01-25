@@ -99,7 +99,6 @@ sub parsescan {
     my $nmap = shift;
     my $args = shift;
     my @ips  = @_;
-    my $FH;
 
     if ( $args =~ /-o(?:X|N|G)/ ) {
         die
@@ -120,7 +119,7 @@ sub parsescan {
     }
     else {
         $cmd = "$nmap $args -v -v -v -oX - " . ( join ' ', @ips );
-        open $FH,
+        open my $FH,
           "$cmd |" || die "[Nmap-Parser] Could not perform nmap scan - $!";
         $self->parse($FH);
         close $FH;
@@ -221,12 +220,14 @@ sub _nmaprun_start_tag_hdlr {
 
     my ( $twig, $tag ) = @_;
 
-    $D{$$}{SESSION}{start_time}   = $tag->{att}->{start};
-    $D{$$}{SESSION}{nmap_version} = $tag->{att}->{version};
-    $D{$$}{SESSION}{start_str}    = $tag->{att}->{startstr};
-    $D{$$}{SESSION}{xml_version}  = $tag->{att}->{xmloutputversion};
-    $D{$$}{SESSION}{scan_args}    = $tag->{att}->{args};
-    $D{$$}{SESSION} = Nmap::Parser::Session->new( $D{$$}{SESSION} );
+    my $session = {};
+    my $att = $tag->{att};
+    $session->{start_time}   = $att->{start};
+    $session->{nmap_version} = $att->{version};
+    $session->{start_str}    = $att->{startstr};
+    $session->{xml_version}  = $att->{xmloutputversion};
+    $session->{scan_args}    = $att->{args};
+    $D{$$}{SESSION} = Nmap::Parser::Session->new( $session );
 
     $twig->purge;
 
@@ -291,34 +292,35 @@ sub _host_tag_hdlr {
       || $addr_hashref->{ipv6}
       || $addr_hashref->{mac};    #worstcase use MAC
 
-    $D{$$}{HOSTS}{$id}{addrs} = $addr_hashref;
+    my $host = {};
+    $host->{addrs} = $addr_hashref;
 
     return undef unless ( defined($id) || $id ne '' );
 
     #GET HOSTNAMES
-    $D{$$}{HOSTS}{$id}{hostnames} = __host_hostnames_tag_hdlr($tag);
+    $host->{hostnames} = __host_hostnames_tag_hdlr($tag);
 
     #GET STATUS
-    $D{$$}{HOSTS}{$id}{status} = $tag->first_child('status')->{att}->{state};
+    $host->{status} = $tag->first_child('status')->{att}->{state};
 
     #CONTINUE PROCESSING IF STATUS IS UP - OTHERWISE NO MORE XML
-    if ( lc( $D{$$}{HOSTS}{$id}{status} ) eq 'up' ) {
+    if ( lc( $host->{status} ) eq 'up' ) {
 
-        $D{$$}{HOSTS}{$id}{ports}         = __host_port_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{os}            = __host_os_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{uptime}        = __host_uptime_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{tcpsequence}   = __host_tcpsequence_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{ipidsequence}  = __host_ipidsequence_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{tcptssequence} = __host_tcptssequence_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{hostscript} = __host_hostscript_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{distance} =
+        $host->{ports}         = __host_port_tag_hdlr($tag);
+        $host->{os}            = __host_os_tag_hdlr($tag);
+        $host->{uptime}        = __host_uptime_tag_hdlr($tag);
+        $host->{tcpsequence}   = __host_tcpsequence_tag_hdlr($tag);
+        $host->{ipidsequence}  = __host_ipidsequence_tag_hdlr($tag);
+        $host->{tcptssequence} = __host_tcptssequence_tag_hdlr($tag);
+        $host->{hostscript} = __host_hostscript_tag_hdlr($tag);
+        $host->{distance} =
           __host_distance_tag_hdlr($tag);    #returns simple value
-        $D{$$}{HOSTS}{$id}{trace}         = __host_trace_tag_hdlr($tag);
-        $D{$$}{HOSTS}{$id}{trace_error}   = __host_trace_error_tag_hdlr($tag);
+        $host->{trace}         = __host_trace_tag_hdlr($tag);
+        $host->{trace_error}   = __host_trace_error_tag_hdlr($tag);
     }
 
     #CREATE HOST OBJECT FOR USER
-    $D{$$}{HOSTS}{$id} = Nmap::Parser::Host->new( $D{$$}{HOSTS}{$id} );
+    $D{$$}{HOSTS}{$id} = Nmap::Parser::Host->new( $host );
 
     if ( $D{callback}{is_registered} ) {
         &{ $D{callback}{coderef} }( $D{$$}{HOSTS}{$id} );
@@ -334,18 +336,18 @@ sub __host_addr_tag_hdlr {
     my $addr_hashref;
 
     #children() will return all children with tag name address
-    for my $addr ( $tag->children('address') ) {
-        if ( lc( $addr->{att}->{addrtype} ) eq 'mac' ) {
+    for my $addr ( map {$_->{att}} $tag->children('address') ) {
+        if ( lc( $addr->{addrtype} ) eq 'mac' ) {
 
             #we'll assume for now, only 1 MAC address per system
-            $addr_hashref->{mac}{addr}   = $addr->{att}->{addr};
-            $addr_hashref->{mac}{vendor} = $addr->{att}->{vendor};
+            $addr_hashref->{mac}{addr}   = $addr->{addr};
+            $addr_hashref->{mac}{vendor} = $addr->{vendor};
         }
-        elsif ( lc( $addr->{att}->{addrtype} ) eq 'ipv4' ) {
-            $addr_hashref->{ipv4} = $addr->{att}->{addr};
+        elsif ( lc( $addr->{addrtype} ) eq 'ipv4' ) {
+            $addr_hashref->{ipv4} = $addr->{addr};
         }    #support for ipv6? we'll see
-        elsif ( lc( $addr->{att}->{addrtype} ) eq 'ipv6' ) {
-            $addr_hashref->{ipv6} = $addr->{att}->{addr};
+        elsif ( lc( $addr->{addrtype} ) eq 'ipv6' ) {
+            $addr_hashref->{ipv6} = $addr->{addr};
         }
 
     }
@@ -397,23 +399,26 @@ sub __host_port_tag_hdlr {
         $tcp_port_count++ if ( $proto eq 'tcp' );
         $udp_port_count++ if ( $proto eq 'udp' );
 
-        $port_hashref->{$proto}{$portid}{state} = $state->{att}->{state}
+        my $portinfo = {};
+        $portinfo->{state} = $state->{att}->{state}
           || 'unknown'
           if ( $state ne '' );
 
         #GET SERVICE INFORMATION
-        $port_hashref->{$proto}{$portid}{service} =
+        $portinfo->{service} =
           __host_service_tag_hdlr( $port_tag, $portid )
           if ( defined($proto) && defined($portid) );
 
         #GET SCRIPT INFORMATION
-        $port_hashref->{$proto}{$portid}{service}{script} =
+        $portinfo->{service}{script} =
           __host_script_tag_hdlr( $port_tag, $portid)
           if ( defined($proto) && defined($portid) );
 
         #GET OWNER INFORMATION
-        $port_hashref->{$proto}{$portid}{service}{owner} = $owner->{att}->{name}
+        $portinfo->{service}{owner} = $owner->{att}->{name}
           if ( defined($owner) );
+
+        $port_hashref->{$proto}{$portid} = $portinfo;
 
    #These are added at the end, otherwise __host_service_tag_hdlr will overwrite
    #GET PORT STATE
@@ -435,19 +440,20 @@ sub __host_service_tag_hdlr {
     $service_hashref->{port} = $portid;
 
     if ( defined $service ) {
-        $service_hashref->{name}      = $service->{att}->{name} || 'unknown';
-        $service_hashref->{version}   = $service->{att}->{version};
-        $service_hashref->{product}   = $service->{att}->{product};
-        $service_hashref->{extrainfo} = $service->{att}->{extrainfo};
+        my $att = $service->{att};
+        $service_hashref->{name}      = $att->{name} || 'unknown';
+        $service_hashref->{version}   = $att->{version};
+        $service_hashref->{product}   = $att->{product};
+        $service_hashref->{extrainfo} = $att->{extrainfo};
         $service_hashref->{proto} =
-             $service->{att}->{proto}
-          || $service->{att}->{protocol}
+             $att->{proto}
+          || $att->{protocol}
           || 'unknown';
-        $service_hashref->{rpcnum}      = $service->{att}->{rpcnum};
-        $service_hashref->{tunnel}      = $service->{att}->{tunnel};
-        $service_hashref->{method}      = $service->{att}->{method};
-        $service_hashref->{confidence}  = $service->{att}->{conf};
-        $service_hashref->{fingerprint} = $service->{att}->{servicefp};
+        $service_hashref->{rpcnum}      = $att->{rpcnum};
+        $service_hashref->{tunnel}      = $att->{tunnel};
+        $service_hashref->{method}      = $att->{method};
+        $service_hashref->{confidence}  = $att->{conf};
+        $service_hashref->{fingerprint} = $att->{servicefp};
     }
 
     return $service_hashref;
@@ -500,34 +506,34 @@ sub __host_os_tag_hdlr {
             $os_hashref->{osmatch_name_accuracy}[$osmatch_index] =
               $osmatch->{att}->{accuracy};
             $osmatch_index++;
-            for my $osclass ( $osmatch->children('osclass') ) {
+            for my $osclass ( map {$_->{att}} $osmatch->children('osclass') ) {
                 $os_hashref->{osclass_osfamily}[$osclass_index] =
-                  $osclass->{att}->{osfamily};
+                  $osclass->{osfamily};
                 $os_hashref->{osclass_osgen}[$osclass_index] =
-                  $osclass->{att}->{osgen};
+                  $osclass->{osgen};
                 $os_hashref->{osclass_vendor}[$osclass_index] =
-                  $osclass->{att}->{vendor};
+                  $osclass->{vendor};
                 $os_hashref->{osclass_type}[$osclass_index] =
-                  $osclass->{att}->{type};
+                  $osclass->{type};
                 $os_hashref->{osclass_class_accuracy}[$osclass_index] =
-                  $osclass->{att}->{accuracy};
+                  $osclass->{accuracy};
                 $osclass_index++;
             }
         }
         $os_hashref->{'osmatch_count'} = $osmatch_index;
 
         #parse osclass tags
-        for my $osclass ( $os_tag->children('osclass') ) {
+        for my $osclass ( map {$_->{att}} $os_tag->children('osclass') ) {
             $os_hashref->{osclass_osfamily}[$osclass_index] =
-              $osclass->{att}->{osfamily};
+              $osclass->{osfamily};
             $os_hashref->{osclass_osgen}[$osclass_index] =
-              $osclass->{att}->{osgen};
+              $osclass->{osgen};
             $os_hashref->{osclass_vendor}[$osclass_index] =
-              $osclass->{att}->{vendor};
+              $osclass->{vendor};
             $os_hashref->{osclass_type}[$osclass_index] =
-              $osclass->{att}->{type};
+              $osclass->{type};
             $os_hashref->{osclass_class_accuracy}[$osclass_index] =
-              $osclass->{att}->{accuracy};
+              $osclass->{accuracy};
             $osclass_index++;
         }
         $os_hashref->{'osclass_count'} = $osclass_index;
@@ -874,12 +880,13 @@ sub _get_ports {
 #can count as 'open' and 'filetered'. Therefore I need to use a regex from now on
 #if $param is empty, then all ports match.
 
+    my $protoports = $self->{ports}{$proto};
     for my $portid ( keys %{ $self->{ports}{$proto} } ) {
 
         #escape metacharacters ('|', for example in: open|filtered)
         #using \Q and \E
         push( @matched_ports, $portid )
-          if ( $self->{ports}{$proto}{$portid}{state} =~ /\Q$state\E/ );
+          if ( $protoports->{$portid}{state} =~ /\Q$state\E/ );
 
     }
 
