@@ -337,17 +337,15 @@ sub __host_addr_tag_hdlr {
 
     #children() will return all children with tag name address
     for my $addr ( map {$_->{att}} $tag->children('address') ) {
-        if ( lc( $addr->{addrtype} ) eq 'mac' ) {
+        my $type = lc $addr->{addrtype};
+        if ( $type eq 'mac' ) {
 
             #we'll assume for now, only 1 MAC address per system
             $addr_hashref->{mac}{addr}   = $addr->{addr};
             $addr_hashref->{mac}{vendor} = $addr->{vendor};
         }
-        elsif ( lc( $addr->{addrtype} ) eq 'ipv4' ) {
-            $addr_hashref->{ipv4} = $addr->{addr};
-        }    #support for ipv6? we'll see
-        elsif ( lc( $addr->{addrtype} ) eq 'ipv6' ) {
-            $addr_hashref->{ipv6} = $addr->{addr};
+        else { #ipv4, ipv6
+            $addr_hashref->{$type} = $addr->{addr};
         }
 
     }
@@ -361,14 +359,7 @@ sub __host_hostnames_tag_hdlr {
     my $hostnames_tag = $tag->first_child('hostnames');
     return undef unless ( defined $hostnames_tag );
 
-    my @hostnames;
-
-    for my $name ( $hostnames_tag->children('hostname') ) {
-        push @hostnames, $name->{att}->{name};
-    }
-
-    return \@hostnames;
-
+    return [ map {$_->{att}->{name}} $hostnames_tag->children('hostname') ];
 }
 
 sub __host_port_tag_hdlr {
@@ -436,8 +427,7 @@ sub __host_service_tag_hdlr {
     my $tag    = shift;
     my $portid = shift;   #need a way to remember what port this service runs on
     my $service = $tag->first_child('service[@name]');
-    my $service_hashref;
-    $service_hashref->{port} = $portid;
+    my $service_hashref = {port => $portid};
 
     if ( defined $service ) {
         my $att = $service->{att};
@@ -461,14 +451,12 @@ sub __host_service_tag_hdlr {
 
 sub __host_script_tag_hdlr {
     my $tag = shift;
-    my $script_hashref;
 
-    for ( $tag->children('script') ) {
-        $script_hashref->{ $_->{att}->{id} } =
-         __script_tag_hdlr($_);
-    }
-
-    return $script_hashref;
+    return {
+        map {
+            $_->{att}->{id}, __script_tag_hdlr($_)
+        } $tag->children('script')
+    };
 }
 
 sub __host_os_tag_hdlr {
@@ -596,13 +584,12 @@ sub __host_tcptssequence_tag_hdlr {
 sub __host_hostscript_tag_hdlr {
     my $tag = shift;
     my $scripts = $tag->first_child('hostscript');
-    my $scripts_hashref;
     return undef unless ($scripts);
-    for my $script ( $scripts->children('script') ) {
-        $scripts_hashref->{ $script->{att}->{id} } =
-            __script_tag_hdlr( $script );
-    }
-    return $scripts_hashref;
+    return {
+        map {
+            $_->{att}->{id}, __script_tag_hdlr($_)
+        } $scripts->children('script')
+    };
 }
 
 sub __host_distance_tag_hdlr {
@@ -892,12 +879,11 @@ sub _get_ports {
 
 sub _get_port_state {
     my $self   = shift;
-    my $proto  = pop;         #portid might be empty, so this goes first
-    my $portid = lc(shift);
+    my $ref = $self->{ports}{pop()};
+    my $portid = lc shift;
 
-    return undef unless ( exists $self->{ports}{$proto}{$portid} );
-    return $self->{ports}{$proto}{$portid}{state};
-
+    return undef unless exists $ref->{$portid};
+    return $ref->{$portid}{state};
 }
 
 #changed this to use _get_ports since it was similar code
