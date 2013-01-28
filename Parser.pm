@@ -877,21 +877,17 @@ sub _get_ports {
     }
 
 #the port parameter can be set to either any of these also 'open|filtered'
-#can count as 'open' and 'filetered'. Therefore I need to use a regex from now on
+#can count as 'open' and 'filtered'. Therefore I need to use a regex from now on
 #if $param is empty, then all ports match.
 
-    my $protoports = $self->{ports}{$proto};
-    for my $portid ( keys %{ $self->{ports}{$proto} } ) {
-
+    while ( my ($portid, $portref) = each %{ $self->{ports}{$proto} } ) {
         #escape metacharacters ('|', for example in: open|filtered)
         #using \Q and \E
         push( @matched_ports, $portid )
-          if ( $protoports->{$portid}{state} =~ /\Q$state\E/ );
-
+          if ( $portref->{state} =~ /\Q$state\E/ );
     }
 
     return sort { $a <=> $b } @matched_ports;
-
 }
 
 sub _get_port_state {
