@@ -284,7 +284,19 @@ sub _host_tag_hdlr {
 
     #GET ADDRESS INFO
     my $addr_hashref;
-    $addr_hashref = __host_addr_tag_hdlr($tag);
+    for my $addr ( map {$_->{att}} $tag->children('address') ) {
+        my $type = lc $addr->{addrtype};
+        if ( $type eq 'mac' ) {
+
+            #we'll assume for now, only 1 MAC address per system
+            $addr_hashref->{mac}{addr}   = $addr->{addr};
+            $addr_hashref->{mac}{vendor} = $addr->{vendor};
+        }
+        else { #ipv4, ipv6
+            $addr_hashref->{$type} = $addr->{addr};
+        }
+
+    }
 
     #use this as the identifier
     $id =
@@ -292,13 +304,18 @@ sub _host_tag_hdlr {
       || $addr_hashref->{ipv6}
       || $addr_hashref->{mac};    #worstcase use MAC
 
+    return undef unless ( defined($id) || $id ne '' );
+
     my $host = {};
     $host->{addrs} = $addr_hashref;
 
-    return undef unless ( defined($id) || $id ne '' );
-
     #GET HOSTNAMES
-    $host->{hostnames} = __host_hostnames_tag_hdlr($tag);
+    $host->{hostnames} = undef;
+    if (defined( my $hn_tag = $tag->first_child('hostnames') )) {
+        $host->{hostnames} = [ map {
+                $_->{att}->{name}
+            } $hn_tag->children('hostname') ];
+    }
 
     #GET STATUS
     $host->{status} = $tag->first_child('status')->{att}->{state};
@@ -329,37 +346,6 @@ sub _host_tag_hdlr {
 
     $twig->purge;
 
-}
-
-sub __host_addr_tag_hdlr {
-    my $tag = shift;
-    my $addr_hashref;
-
-    #children() will return all children with tag name address
-    for my $addr ( map {$_->{att}} $tag->children('address') ) {
-        my $type = lc $addr->{addrtype};
-        if ( $type eq 'mac' ) {
-
-            #we'll assume for now, only 1 MAC address per system
-            $addr_hashref->{mac}{addr}   = $addr->{addr};
-            $addr_hashref->{mac}{vendor} = $addr->{vendor};
-        }
-        else { #ipv4, ipv6
-            $addr_hashref->{$type} = $addr->{addr};
-        }
-
-    }
-
-    return $addr_hashref;
-}
-
-sub __host_hostnames_tag_hdlr {
-    my $tag = shift;
-
-    my $hostnames_tag = $tag->first_child('hostnames');
-    return undef unless ( defined $hostnames_tag );
-
-    return [ map {$_->{att}->{name}} $hostnames_tag->children('hostname') ];
 }
 
 sub __host_port_tag_hdlr {
@@ -852,7 +838,6 @@ sub _get_ports {
     my $self          = shift;
     my $proto         = pop;          #param might be empty, so this goes first
     my $state         = shift;    #open, filtered, closed or any combination
-    my @matched_ports = ();
 
     #if $state is undef, then tcp_ports or udp_ports was called for all ports
     #therefore, only return the keys of all ports found
@@ -866,12 +851,13 @@ sub _get_ports {
 #the port parameter can be set to either any of these also 'open|filtered'
 #can count as 'open' and 'filtered'. Therefore I need to use a regex from now on
 #if $param is empty, then all ports match.
-
+    my @matched_ports;
+    my $state_re = qr/\Q$state\E/;
     while ( my ($portid, $portref) = each %{ $self->{ports}{$proto} } ) {
         #escape metacharacters ('|', for example in: open|filtered)
         #using \Q and \E
         push( @matched_ports, $portid )
-          if ( $portref->{state} =~ /\Q$state\E/ );
+          if ( $portref->{state} =~ /$state_re/ );
     }
 
     return sort { $a <=> $b } @matched_ports;
