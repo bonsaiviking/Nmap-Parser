@@ -382,24 +382,34 @@ sub __host_port_tag_hdlr {
           if ( $state ne '' );
 
         #GET SERVICE INFORMATION
-        $portinfo->{service} =
-          __host_service_tag_hdlr( $port_tag, $portid )
-          if ( defined($proto) && defined($portid) );
+        if ( defined( my $service = $port_tag->first_child('service[@name]')) ) {
+            my $att = $service->{att};
+            $portinfo->{service} = {
+                name           => $att->{name} || 'unknown',
+                version        => $att->{version},
+                product        => $att->{product},
+                extrainfo      => $att->{extrainfo},
+                proto          => $att->{proto} || $att->{protocol} || 'unknown',
+                rpcnum         => $att->{rpcnum},
+                tunnel         => $att->{tunnel},
+                method         => $att->{method},
+                confidence     => $att->{conf},
+                fingerprint    => $att->{servicefp},
+            };
+        }
 
         #GET SCRIPT INFORMATION
-        $portinfo->{service}{script} =
-          __host_script_tag_hdlr( $port_tag, $portid)
-          if ( defined($proto) && defined($portid) );
+        $portinfo->{service}{script} = {
+            map {
+            $_->{att}->{id}, __script_tag_hdlr($_)
+            } $port_tag->children('script')
+        };
 
         #GET OWNER INFORMATION
         $portinfo->{service}{owner} = $owner->{att}->{name}
           if ( defined($owner) );
 
         $port_hashref->{$proto}{$portid} = $portinfo;
-
-   #These are added at the end, otherwise __host_service_tag_hdlr will overwrite
-   #GET PORT STATE
-
     }
 
     $port_hashref->{tcp_port_count} = $tcp_port_count;
@@ -407,42 +417,6 @@ sub __host_port_tag_hdlr {
 
     return $port_hashref;
 
-}
-
-sub __host_service_tag_hdlr {
-    my $tag    = shift;
-    my $portid = shift;   #need a way to remember what port this service runs on
-    my $service = $tag->first_child('service[@name]');
-    my $service_hashref = {port => $portid};
-
-    if ( defined $service ) {
-        my $att = $service->{att};
-        $service_hashref->{name}      = $att->{name} || 'unknown';
-        $service_hashref->{version}   = $att->{version};
-        $service_hashref->{product}   = $att->{product};
-        $service_hashref->{extrainfo} = $att->{extrainfo};
-        $service_hashref->{proto} =
-             $att->{proto}
-          || $att->{protocol}
-          || 'unknown';
-        $service_hashref->{rpcnum}      = $att->{rpcnum};
-        $service_hashref->{tunnel}      = $att->{tunnel};
-        $service_hashref->{method}      = $att->{method};
-        $service_hashref->{confidence}  = $att->{conf};
-        $service_hashref->{fingerprint} = $att->{servicefp};
-    }
-
-    return $service_hashref;
-}
-
-sub __host_script_tag_hdlr {
-    my $tag = shift;
-
-    return {
-        map {
-            $_->{att}->{id}, __script_tag_hdlr($_)
-        } $tag->children('script')
-    };
 }
 
 sub __host_os_tag_hdlr {
@@ -622,7 +596,6 @@ sub __host_trace_error_tag_hdlr {
 
         my $error_tag = $trace_tag->first_child('error');
         if ( defined $error_tag ) {
-            
             # If an error happens, always provide a true value even if
             # it doesn't contains a useful string
             my $errorstr = $error_tag->{att}->{errorstr} || 1;
@@ -1097,35 +1070,35 @@ Nmap::Parser - parse nmap scan data with perl
 
   use Nmap::Parser;
   my $np = new Nmap::Parser;
-  
+
   $np->parsescan($nmap_path, $nmap_args, @ips);
     #or
   $np->parsefile($file_xml);
-  
+
   my $session    = $np->get_session();
     #a Nmap::Parser::Session object
-    
+
   my $host       = $np->get_host($ip_addr);
     #a Nmap::Parser::Host object
-    
+
   my $service = $host->tcp_service(80);
     #a Nmap::Parser::Host::Service object
-    
+
   my $os         = $host->os_sig();
     #a Nmap::Parser::Host::OS object
- 
+
  #---------------------------------------
- 
+
  my $np2 = new Nmap::Parser;
- 
+
  $np2->callback(\&my_callback);
- 
+
  $np2->parsefile($file_xml);
     #or
  $np2->parsescan($nmap_path, $nmap_args, @ips);
-    
+
  sub my_callback {
- 
+
    my $host = shift;
     #Nmap::Parser::Host object
     #.. see documentation for all methods ...
@@ -1157,7 +1130,7 @@ operating system signature information (OS guessed names, classes, osfamily..etc
   Nmap::Parser                        -- Core parser
      |
      +--Nmap::Parser::Session         -- Nmap scan session information
-     |  
+     |
      +--Nmap::Parser::Host            -- General host information
      |  |
      |  |-Nmap::Parser::Host::Service -- Port service information
@@ -1236,7 +1209,7 @@ you are parsing lots of nmap scan data files with persistent variables.
 Sets the parsing mode to be done using the callback function. It takes the parameter
 of a code reference or a reference to a function. If no code reference is given,
 it resets the mode to normal (no callback).
- 
+
  $np->callback(\&my_function); #sets callback, my_function() will be called
  $np->callback(); #resets it, no callback function called. Back to normal.
 
@@ -1401,7 +1374,7 @@ is used as the location in the array. The index starts at 0;
  hostname() eq hostname(0);
  hostname(1); #second hostname found
  hostname(400) eq hostname(1) #nothing at 400; return the name at the last index
- 
+
 
 =item B<ipv4_addr()>
 
@@ -1507,7 +1480,7 @@ a string argument can be given to these functions to filter the list.
 
  $host->tcp_ports('open') #returns all only 'open' ports (even 'open|filtered')
  $host->udp_ports('open|filtered'); #matches exactly ports with 'open|filtered'
- 
+
 I<Note that if a port state is set to 'open|filtered' (or any combination), it will
 be counted as an 'open' port as well as a 'filtered' one.>
 
@@ -1534,33 +1507,33 @@ Returns the state of the given port, provided by the port number in $portid.
 =item B<udp_open_ports()>
 
 Returns the list of open TCP|UDP ports respectively. Note that if a port state is
-for example, 'open|filtered', it will appear on this list as well. 
+for example, 'open|filtered', it will appear on this list as well.
 
 =item B<tcp_filtered_ports()>
 
 =item B<udp_filtered_ports()>
 
 Returns the list of filtered TCP|UDP ports respectively. Note that if a port state is
-for example, 'open|filtered', it will appear on this list as well. 
+for example, 'open|filtered', it will appear on this list as well.
 
 =item B<tcp_closed_ports()>
 
 =item B<udp_closed_ports()>
 
 Returns the list of closed TCP|UDP ports respectively. Note that if a port state is
-for example, 'closed|filtered', it will appear on this list as well. 
+for example, 'closed|filtered', it will appear on this list as well.
 
 =item B<tcp_service($portid)>
 
 =item B<udp_service($portid)>
 
 Returns the Nmap::Parser::Host::Service object of a given service running on port,
-provided by $portid. See Nmap::Parser::Host::Service for more info. 
+provided by $portid. See Nmap::Parser::Host::Service for more info.
 
  $svc = $host->tcp_service(80);
  $svc->name;
  $svc->proto;
- 
+
 
 =back
 
@@ -1618,7 +1591,7 @@ Returns the tunnel value. (If available)
 =item B<fingerprint()>
 
 Returns the service fingerprint. (If available)
- 
+
 =item B<version()>
 
 Returns the version of the given product of the running service.
@@ -1768,7 +1741,7 @@ The host name of this hop, if known.
 
 I think some of us best learn from examples. These are a couple of examples to help
 create custom security audit tools using some of the nice features
-of the Nmap::Parser module. Hopefully this can double as a tutorial. 
+of the Nmap::Parser module. Hopefully this can double as a tutorial.
 More tutorials (articles) can be found at L<http://apersaud.github.com/Nmap-Parser/>
 
 =head2 Real-Time Scanning
@@ -1797,7 +1770,7 @@ you can use cache_scan(). You must call cache_scan() BEFORE you initiate the par
  my $np = new Nmap::Parser;
 
  #telling np to save output
- $np->cache_scan('nmap.localhost.xml'); 
+ $np->cache_scan('nmap.localhost.xml');
  $np->parsescan('/usr/bin/nmap','-F','localhost');
  #do other stuff...
 
@@ -1815,9 +1788,9 @@ setup before parsing>
  use Nmap::Parser;
  my $np = new Nmap::Parser;
 
- 
+
  $np->callback( \&booyah );
- 
+
  $np->parsefile('nmap_results.xml');
     # or use parsescan()
 
@@ -1829,7 +1802,7 @@ setup before parsing>
     #when it returns, host object will be deleted from memory
     #(good for processing VERY LARGE files or scans)
  }
- 
+
 
 =head2 Multiple Instances - (C<no less 'of'; my $self>)
 
@@ -1846,30 +1819,30 @@ same hosts, and compare if any new tcp have been open since then
  use vars qw($nmap_exe $nmap_args @ips);
  my $base = new Nmap::Parser;
  my $curr = new Nmap::Parser;
- 
- 
+
+
  $base->parsefile('base_image.xml'); #load previous state
  $curr->parsescan($nmap_exe, $nmap_args, @ips); #scan current hosts
- 
- for my $ip ($curr->get_ips ) 
+
+ for my $ip ($curr->get_ips )
  {
  	#assume that IPs in base == IPs in curr scan
  	my $ip_base = $base->get_host($ip);
  	my $ip_curr = $curr->get_host($ip);
  	my %port = ();
- 	
+
  	#find ports that are open that were not open before
  	#by finding the difference in port lists
-	my @diff =  grep { $port{$_} < 2} 
-		   (map {$port{$_}++; $_} 
+	my @diff =  grep { $port{$_} < 2}
+		   (map {$port{$_}++; $_}
 		   ( $ip_curr->tcp_open_ports , $ip_base->tcp_open_ports ));
-	
+
 	print "$ip has these new ports open: ".join(',',@diff) if(scalar @diff);
-	
+
 	for (@diff){print "$_ seems to be ",$ip_curr->tcp_service($_)->name,"\n";}
- 		
+
  }
- 
+
 
 =head1 SUPPORT
 
